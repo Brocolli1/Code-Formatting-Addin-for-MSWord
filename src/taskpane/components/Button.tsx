@@ -5,6 +5,7 @@ import { string } from 'prop-types';
 import { ContextReplacementPlugin, LoaderContext } from 'webpack';
 
 var level = 0;
+var control = 0 
 
 export class ButtonPrimaryExample extends React.Component<IButtonProps, {}> {
   public constructor(props) {
@@ -25,7 +26,6 @@ export class ButtonPrimaryExample extends React.Component<IButtonProps, {}> {
       };
  
       const paragraphs = context.document.getSelection().paragraphs;
-      var words;
 
       var color:string = "black";
       
@@ -36,17 +36,22 @@ export class ButtonPrimaryExample extends React.Component<IButtonProps, {}> {
       for (let i = 0; i < paragraphs.items.length; i++) {
         
         var paragraph = paragraphs.items[i];
-        await this.paragraphBreaker(paragraph,keywords);
+        await this.paragraphBreaker(paragraph,keywords, true);
+        paragraphs.load();
+        await context.sync();
       }
+
     });
   }
 
-  private async paragraphBreaker(paragraph, keywords){
+  private async paragraphBreaker(paragraph, keywords, breaking){
+    control += 1
+    //var breaking =  true;
     paragraph.load("text");
     var context = paragraph.context;
     var words;
     var color = "black";
-    paragraph.firstLineIndent = level * 10; 
+    paragraph.firstLineIndent = level * 20; 
     await context.sync();
       words = paragraph.split(["{", "}", "(", ")", ";", "\t", " ", "\n"], false, true);
       words.load("text");
@@ -55,36 +60,35 @@ export class ButtonPrimaryExample extends React.Component<IButtonProps, {}> {
       for (let j = 0; j < words.items.length; j++) {
         
         var word = words.items[j].text;
-
-        if(word.includes("{"))
-        {
-          level += 1; 
-          if(j != words.items.length-1){
-            //words.items[j].insertText("\n", "End");
-            words.items[j].insertBreak("Line", "After");
+        if(breaking){
+          if(word == "{")
+          { 
+            if(j != words.items.length-1){
+              await this.splitParagraph(paragraph, words, j, true, keywords);
+              break;
+            }  
+          }
+          if(word.includes("}"))
+          {
             await context.sync();
-            //await this.paragraphBreaker(paragraph.getNext(), keywords);
-          }  
-        }
-        if(word.includes("}"))
-        {
-          await context.sync();
-          if(j == words.items.length-1){
-            await context.sync();
-          } 
-          else{
-            words.items[j].insertBreak("Line", "After");
-            await context.sync();
+            if(j == words.items.length-1){
+              await context.sync();
+            } 
+            else{
+              words.items[j].insertBreak("Line", "After");
+              await context.sync();
+            }
+          }
+          if(word.includes(";"))
+          {
+            if(j != words.items.length-1){
+              await this.splitParagraph(paragraph, words, j, false, keywords);
+              break;
+              //await this.paragraphBreaker(paragraph.getNext(), keywords);
+            }
           }
         }
-        if(word.includes(";"))
-        {
-          if(j != words.items.length-1){
-            words.items[j+1].insertBreak("Line", "Before");
-            await context.sync();
-            //await this.paragraphBreaker(paragraph.getNext(), keywords);
-          }
-        }
+        //this.rangeColouring(color,words.items[j],keywords);
         if(word.includes("\"") || word.includes("\'"))
         {
           if(color == "red"){
@@ -120,6 +124,49 @@ export class ButtonPrimaryExample extends React.Component<IButtonProps, {}> {
       }
   }
 
+
+  private async splitParagraph (paragraph:Word.Paragraph, words:Word.RangeCollection, index:number, splitIndex:boolean, keywords)
+  {
+    var context = paragraph.context;
+    var text_to_mv = "";
+    var prevParagraph;
+    var text_to_leave = "";
+    for(let i = 0; i < index; i++)
+    {
+      text_to_leave += words.items[i].text.trim() + " ";
+      await context.sync();
+    }
+
+    if(!splitIndex)
+    {
+      text_to_leave += words.items[index].text.trim();
+    }
+
+    prevParagraph = paragraph.insertParagraph(text_to_leave, Word.InsertLocation.after);
+    await context.sync();
+    await this.paragraphBreaker(prevParagraph, keywords, false);
+
+    if(splitIndex)
+    {
+      prevParagraph = prevParagraph.insertParagraph(words.items[index].text.trim(), Word.InsertLocation.after);
+      await context.sync();
+      level += 1; 
+    }
+
+    for(let i = index+1; i < words.items.length; i++)
+    {
+      text_to_mv += words.items[i].text.trim() + " ";
+      await context.sync();
+    }
+    
+    var newParagraph = prevParagraph.insertParagraph(text_to_mv, Word.InsertLocation.after);
+    await context.sync();
+    paragraph.delete();
+    await context.sync();
+    await this.paragraphBreaker(newParagraph, keywords, true);
+  }
+
+
   private async colorChange(newColor:string, oldColor:string, range:Word.Range, delimeter:string, inclusive:boolean)
   {
     var workingRange = range.split([delimeter], true, inclusive);
@@ -148,6 +195,7 @@ export class ButtonPrimaryExample extends React.Component<IButtonProps, {}> {
     }
     
   }
+
 
   private async writeLine(text:String, level:Number, context)
   { 
